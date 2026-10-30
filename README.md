@@ -7,6 +7,7 @@ Java 版 PSD 生成库，参考 [ag-psd](https://github.com/Agamnentzar/ag-psd) 
 - 生成 8 位 RGB PSD 文件（PSD version 1）
 - 添加图片图层（`BufferedImage`）
 - 添加可编辑文本图层（TySh + EngineData），Photoshop 中可以继续修改文字
+- 文本图层支持横排和竖排（直排汉字，`TextOrientation.VERTICAL`）
 - 图层名称（含中文，写入 `luni`）、位置、透明度、可见性、混合模式
 - 未指定合成图时，自动按可见图层合成底图
 
@@ -22,6 +23,7 @@ mvn package
 import com.xulihang.psd.Psd;
 import com.xulihang.psd.TextAlignment;
 import com.xulihang.psd.TextLayer;
+import com.xulihang.psd.TextOrientation;
 
 import javax.imageio.ImageIO;
 import java.awt.Color;
@@ -48,6 +50,15 @@ TextLayer title = new TextLayer("Title", "Hello PSD\n你好，Photoshop！", 100
         .setLineHeight(72);
 
 psd.addTextLayer(title);
+
+// 竖排文本：每个换行对应一列，列从右向左排列，列内字符自上而下
+TextLayer vertical = new TextLayer("竖排标题", "春眠不觉晓\n处处闻啼鸟", 700, 200)
+        .setFontFamily("SimSun")
+        .setFontName("SimSun")
+        .setFontSize(48)
+        .setOrientation(TextOrientation.VERTICAL);
+
+psd.addTextLayer(vertical);
 psd.write(Paths.get("output.psd"));
 ```
 
@@ -67,8 +78,9 @@ byte[] data = psd.toByteArray();
 | `Psd` | 文档：尺寸、图层列表、`toByteArray()` / `write(...)` |
 | `Layer` | 图层基类：名称、位置、透明度、可见性、混合模式 |
 | `ImageLayer` | 图片图层，内容为 `BufferedImage` |
-| `TextLayer` | 文本图层：文字、字体、字号、颜色、对齐、文本框、行高、抗锯齿 |
+| `TextLayer` | 文本图层：文字、字体、字号、颜色、对齐、文本方向、文本框、行高、抗锯齿 |
 | `TextAlignment` | 左对齐 / 居中 / 右对齐 |
+| `TextOrientation` | 横排 / 竖排 |
 | `BlendMode` | 常用混合模式（normal、multiply、screen、overlay 等） |
 
 ## 运行示例
@@ -78,7 +90,7 @@ mvn compile
 java -cp target/classes com.xulihang.Main
 ```
 
-会在当前目录生成 `output.psd`（渐变背景 + 半透明图片层 + 两个文本层）。
+会在当前目录生成 `output.psd`（渐变背景 + 半透明图片层 + 横排/竖排/说明三个文本层）。
 
 ## 说明与限制
 
@@ -88,3 +100,6 @@ java -cp target/classes com.xulihang.Main
 - 文本图层的像素数据由 Java2D 渲染，仅作为预览；Photoshop 会依据 TySh 中的文本数据重新排版，
   字体缺失或自动换行时预览与最终效果可能略有差异。
 - 合成图按普通叠加（normal）绘制，非 normal 混合模式只在 PSD 图层属性中生效。
+- 竖排文本：TySh 的 `Ornt`、EngineData 的 `WritingDirection` / `Procession` / `CharacterDirection` /
+  `KinsokuOrder` 均按竖排写入，已在 Photoshop 中打开验证可正常显示和编辑。竖排预览由 Java2D 简化绘制：
+  括号和引号旋转 90°，其余字符正立，不做标点旋转和避头尾调整。

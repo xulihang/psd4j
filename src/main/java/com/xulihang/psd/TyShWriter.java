@@ -53,7 +53,7 @@ final class TyShWriter {
 
         out.writeAsciiStringOrClassId("Ornt");
         out.writeSignature("enum");
-        writeEnum(out, "Ornt", "Hrzn");
+        writeEnum(out, "Ornt", layer.getOrientation().getEnumValue());
 
         out.writeAsciiStringOrClassId("AntA");
         out.writeSignature("enum");

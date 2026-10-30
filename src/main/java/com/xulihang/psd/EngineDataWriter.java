@@ -43,7 +43,7 @@ final class EngineDataWriter {
         String text = toEngineText(layer.getText()) + "\r";
         int fontIndex = 1; // index 0 is AdobeInvisFont
 
-        Map<String, Object> paragraph = paragraphProperties(layer.getAlignment());
+        Map<String, Object> paragraph = paragraphProperties(layer.getAlignment(), layer.getOrientation().isVertical());
         Map<String, Object> fullStyle = fullStyle(layer, fontIndex);
         Map<String, Object> runStyle = runStyle(layer, fontIndex);
 
@@ -90,18 +90,20 @@ final class EngineDataWriter {
                         "TransformPoint1", numbers(0, 1),
                         "TransformPoint2", numbers(0, 0)));
 
+        int writingDirection = layer.getOrientation().getWritingDirection();
+
         Map<String, Object> textShape = map(
                 "ShapeType", 1,
-                "Procession", 0,
+                "Procession", layer.getOrientation().getProcession(),
                 "Lines", map(
-                        "WritingDirection", 0,
+                        "WritingDirection", writingDirection,
                         "Children", list()),
                 "Cookie", map("Photoshop", photoshop));
 
         Map<String, Object> rendered = map(
                 "Version", 1,
                 "Shapes", map(
-                        "WritingDirection", 0,
+                        "WritingDirection", writingDirection,
                         "Children", list(textShape)));
 
         Map<String, Object> engineDict = map(
@@ -190,7 +192,7 @@ final class EngineDataWriter {
                 "SmallCapSize", 0.7);
     }
 
-    private static Map<String, Object> paragraphProperties(TextAlignment alignment) {
+    private static Map<String, Object> paragraphProperties(TextAlignment alignment, boolean vertical) {
         return map(
                 "Justification", alignment.getJustification(),
                 "FirstLineIndent", 0.0,
@@ -211,7 +213,7 @@ final class EngineDataWriter {
                 "LeadingType", 0,
                 "Hanging", false,
                 "Burasagari", false,
-                "KinsokuOrder", 0,
+                "KinsokuOrder", vertical ? 1 : 0,
                 "EveryLineComposer", false);
     }
 
@@ -248,7 +250,7 @@ final class EngineDataWriter {
                 "FillFirst", true,
                 "YUnderline", 1,
                 "OutlineWidth", 1.0,
-                "CharacterDirection", 0,
+                "CharacterDirection", layer.getOrientation().isVertical() ? 1 : 0,
                 "HindiNumbers", false,
                 "Kashida", 1,
                 "DiacriticPos", 2);

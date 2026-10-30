@@ -6,6 +6,8 @@ import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * An editable text layer. The text itself is stored in the PSD TySh record;
@@ -21,6 +23,7 @@ public final class TextLayer extends Layer {
     private boolean bold;
     private boolean italic;
     private TextAlignment alignment = TextAlignment.LEFT;
+    private TextOrientation orientation = TextOrientation.HORIZONTAL;
     private int boxWidth;
     private int boxHeight;
     private double lineHeight;
@@ -143,6 +146,21 @@ public final class TextLayer extends Layer {
     }
 
     /**
+     * Text flow direction. Vertical lays characters out top to bottom in
+     * columns that advance right to left; each line of the text becomes a column.
+     * Note that vertical text support is experimental, see the README.
+     */
+    public TextOrientation getOrientation() {
+        return orientation;
+    }
+
+    public TextLayer setOrientation(TextOrientation orientation) {
+        this.orientation = orientation == null ? TextOrientation.HORIZONTAL : orientation;
+        invalidate();
+        return this;
+    }
+
+    /**
      * Text box size in pixels. A width or height of 0 lets the library measure
      * the text and size the box to fit it.
      */
@@ -202,6 +220,13 @@ public final class TextLayer extends Layer {
         measuring.dispose();
 
         int lineHeightPx = lineHeight > 0 ? (int) Math.ceil(lineHeight) : metrics.getHeight();
+        return orientation.isVertical()
+                ? renderVertical(lines, font, metrics, lineHeightPx)
+                : renderHorizontal(lines, font, metrics, lineHeightPx);
+    }
+
+    /** Text lines stacked top to bottom; each line is drawn as one string. */
+    private BufferedImage renderHorizontal(String[] lines, Font font, FontMetrics metrics, int lineHeightPx) {
         int contentWidth = 0;
         for (String line : lines) {
             contentWidth = Math.max(contentWidth, metrics.stringWidth(line));
@@ -210,12 +235,8 @@ public final class TextLayer extends Layer {
         int width = boxWidth > 0 ? boxWidth : Math.max(1, contentWidth + 2);
         int height = boxHeight > 0 ? boxHeight : Math.max(1, lineHeightPx * lines.length + 2);
 
-        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage image = newImage(width, height);
         Graphics2D graphics = image.createGraphics();
-        graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-                RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-                RenderingHints.VALUE_ANTIALIAS_ON);
         graphics.setFont(font);
         graphics.setColor(color);
 
@@ -237,6 +258,92 @@ public final class TextLayer extends Layer {
         graphics.dispose();
         return image;
     }
+
+    /**
+     * One column per line, advancing right to left. Each character is drawn
+     * below the previous one, with brackets and punctuation rotated a quarter
+     * turn clockwise as in Photoshop's vertical layout.
+     */
+    private BufferedImage renderVertical(String[] lines, Font font, FontMetrics metrics, int columnWidthPx) {
+        int lineHeightPx = metrics.getHeight();
+        int contentWidth = 0;
+        int contentHeight = 0;
+        for (String line : lines) {
+            contentWidth = Math.max(contentWidth, columnWidthPx * Math.max(1, verticalCells(line).size()));
+            contentHeight = Math.max(contentHeight, lineHeightPx * verticalCells(line).size());
+        }
+
+        int width = boxWidth > 0 ? boxWidth : Math.max(1, contentWidth + 2);
+        int height = boxHeight > 0 ? boxHeight : Math.max(1, contentHeight + 2);
+
+        BufferedImage image = newImage(width, height);
+        Graphics2D graphics = image.createGraphics();
+        graphics.setFont(font);
+        graphics.setColor(color);
+
+        // Right-align the columns when the box is wider than the text.
+        int columnRight = Math.max(0, width - 2);
+        for (String line : lines) {
+            List<String> cells = verticalCells(line);
+            for (int i = 0; i < cells.size(); i++) {
+                int cellTop = 2 + lineHeightPx * i;
+                drawVerticalCell(graphics, cells.get(i), columnRight, cellTop, columnWidthPx, lineHeightPx, font, metrics);
+            }
+            columnRight -= columnWidthPx;
+        }
+
+        graphics.dispose();
+        return image;
+    }
+
+    private BufferedImage newImage(int width, int height) {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                RenderingHints.VALUE_ANTIALIAS_ON);
+        graphics.dispose();
+        return image;
+    }
+
+    /** Splits a line into vertical cells; a surrogate pair stays in one cell. */
+    private static List<String> verticalCells(String line) {
+        List<String> cells = new ArrayList<>();
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (Character.isHighSurrogate(c) && i + 1 < line.length() && Character.isLowSurrogate(line.charAt(i + 1))) {
+                cells.add(line.substring(i, i + 2));
+                i++;
+            } else {
+                cells.add(String.valueOf(c));
+            }
+        }
+        return cells;
+    }
+
+    private static void drawVerticalCell(Graphics2D graphics, String cell, int columnRight, int cellTop,
+            int columnWidthPx, int lineHeightPx, Font font, FontMetrics metrics) {
+        char c = cell.charAt(0);
+        double centerX = columnRight - columnWidthPx / 2.0;
+        double centerY = cellTop + lineHeightPx / 2.0;
+
+        if (cell.length() == 1 && VERTICAL_ROTATED_LEFT.indexOf(c) >= 0) {
+            graphics.translate(centerX, centerY);
+            graphics.rotate(-Math.PI / 2);
+            graphics.drawString(cell, -metrics.stringWidth(cell) / 2, metrics.getAscent() / 2 - 1);
+            graphics.rotate(Math.PI / 2);
+            graphics.translate(-centerX, -centerY);
+        } else {
+            // Center every glyph in its cell; centering each glyph separately keeps
+            // ASCII letters upright instead of stacking them off to the left.
+            float x = (float) (centerX - metrics.stringWidth(cell) / 2.0);
+            float y = (float) (centerY + (metrics.getAscent() - metrics.getDescent()) / 2.0);
+            graphics.drawString(cell, x, y);
+        }
+    }
+
+    private static final String VERTICAL_ROTATED_LEFT = "\uFF08\uFF09\u3008\u3009\u300A\u300B\u300C\u300D\u300E\u300F\u3010\u3011\u3014\u3015\uFF3B\uFF3D\uFF5B\uFF5D\u201C\u201D";
 
     private int fontStyle() {
         int style = Font.PLAIN;
